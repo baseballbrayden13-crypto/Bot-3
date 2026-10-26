@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bot Avatar</title>
+<style>
+:root {
+  --bg: #07070f; --panel: #12121f; --line: #25253a; --text: #f2f2ff; --muted: #8a8aa8;
+  --green: #2bff9a; --red: #ff4d6d; --cyan: #34e7ff; --purple: #b56cff; --amber: #ffc94d;
+  --eye: var(--cyan);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: radial-gradient(120% 70% at 50% 0%, #1b1240 0%, var(--bg) 60%);
+  color: var(--text); font-family: "Segoe UI", system-ui, sans-serif;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+header { display: flex; align-items: center; gap: 8px; padding: 12px 16px 0; }
+.pill { font-size: 12px; font-weight: 700; letter-spacing: .08em; padding: 4px 10px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); }
+.live { background: #3a0d18; border-color: #6b1628; color: #ff8aa0; }
+.live::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--red); margin-right: 6px; animation: blink 1.2s infinite; vertical-align: 1px; }
+.live.off { background: var(--panel); border-color: var(--line); color: var(--muted); }
+.live.off::before { background: var(--muted); animation: none; }
+#clock { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; }
+
+#pnl { text-align: center; padding: 10px 16px 0; }
+#pnl .label { font-size: 12px; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; }
+#pnl .big { font-size: 44px; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; transition: color .3s; }
+#pnl .sub { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.up { color: var(--green); } .down { color: var(--red); }
+
+#stage { position: relative; flex: 1; min-height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; }
+#bubble {
+  position: relative; max-width: min(420px, calc(100% - 32px)); margin: 0 16px 14px; padding: 12px 16px;
+  background: #fff; color: #111; border-radius: 18px; font-size: 16px; font-weight: 600; line-height: 1.35;
+  box-shadow: 0 6px 30px rgba(52,231,255,.25); min-height: 46px;
+}
+#bubble::after { content: ""; position: absolute; left: 50%; bottom: -10px; margin-left: -10px; border: 10px solid transparent; border-top-color: #fff; border-bottom: 0; }
+#bubble .small { display: block; margin-top: 6px; font-size: 13px; font-weight: 500; color: #555; }
+#bubble.pop { animation: pop .35s ease-out; }
+
+#bot { width: 230px; height: 250px; animation: bob 3s ease-in-out infinite; transform-origin: 50% 100%; }
+#bot .eye { fill: var(--eye); transition: fill .3s; }
+#bot .eyes { animation: look 6s ease-in-out infinite; }
+#bot .lid { animation: lids 5s infinite; transform-origin: center; transform-box: fill-box; }
+#bot .glow { fill: var(--eye); opacity: .18; transition: fill .3s; }
+#bot .antenna-ball { fill: var(--eye); animation: blink 1.6s infinite; }
+#bot .mouth { stroke: var(--eye); transition: d .3s; }
+#bot .arm-l, #bot .arm-r { transform-box: fill-box; transition: transform .4s; }
+#bot .arm-l { transform-origin: 100% 0%; } #bot .arm-r { transform-origin: 0% 0%; }
+#zzz { position: absolute; right: calc(50% - 120px); top: 30%; font-size: 26px; font-weight: 800; color: var(--purple); opacity: 0; }
+
+/* moods */
+body.sleep { --eye: var(--purple); }
+body.sleep #bot { animation: bob 5s ease-in-out infinite; filter: saturate(.6) brightness(.8); }
+body.sleep #bot .eyes { animation: none; transform: scaleY(.12); transform-origin: center; transform-box: fill-box; }
+body.sleep #zzz { animation: zzz 3s ease-in-out infinite; }
+body.happy, body.win { --eye: var(--green); }
+body.happy #bot, body.win #bot { animation: hop .6s ease-in-out infinite; }
+body.happy .arm-l, body.win .arm-l { transform: rotate(50deg); }
+body.happy .arm-r, body.win .arm-r { transform: rotate(-50deg); }
+body.buy { --eye: var(--amber); }
+body.buy #bot { animation: hop .45s ease-in-out infinite; }
+body.buy .arm-r { transform: rotate(-70deg); }
+body.nope { --eye: var(--red); }
+body.nope #bot { animation: shake .5s ease-in-out 3, bob 3s 1.5s ease-in-out infinite; }
+body.nope .arm-l { transform: rotate(-20deg); } body.nope .arm-r { transform: rotate(20deg); }
+body.sad { --eye: #6f8cff; }
+body.sad #bot { animation: slump 2.5s ease-in-out infinite; }
+body.think { --eye: var(--purple); }
+body.think .eyes { animation: lookup 2s ease-in-out infinite; }
+body.error { --eye: var(--red); }
+body.error #bot { animation: glitch .3s steps(2) infinite; }
+
+#chips { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; padding: 10px 16px 0; }
+.chip { font-size: 12px; font-weight: 700; padding: 5px 10px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); color: var(--muted); transition: all .3s; }
+.chip.held { color: var(--amber); border-color: #6b5420; }
+.chip.focus { color: #111; background: var(--cyan); border-color: var(--cyan); transform: scale(1.12); }
+
+#bottom { padding: 10px 16px 12px; display: grid; gap: 10px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; }
+.card h3 { margin: 0 0 6px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+.row { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; padding: 3px 0; font-variant-numeric: tabular-nums; }
+.row .muted { color: var(--muted); }
+#feed { max-height: 150px; overflow-y: auto; }
+#feed .row { font-size: 13px; align-items: baseline; }
+#feed .row span:first-child { color: var(--muted); flex: none; width: 44px; }
+#feed .row span:last-child { flex: 1; text-align: left; }
+footer { display: flex; align-items: center; gap: 8px; padding: 0 16px 12px; font-size: 12px; color: var(--muted); }
+footer .spacer { flex: 1; }
+button { font: inherit; font-size: 12px; font-weight: 700; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; cursor: pointer; }
+button:hover { border-color: var(--cyan); }
+button.on { background: var(--cyan); color: #111; border-color: var(--cyan); }
+
+.fall { position: fixed; top: -40px; pointer-events: none; font-size: 26px; animation: fall linear forwards; z-index: 10; }
+
+@keyframes blink { 50% { opacity: .25; } }
+@keyframes bob { 50% { transform: translateY(-8px); } }
+@keyframes hop { 50% { transform: translateY(-22px) scale(1.03); } }
+@keyframes shake { 20%,60% { transform: translateX(-14px) rotate(-4deg); } 40%,80% { transform: translateX(14px) rotate(4deg); } }
+@keyframes slump { 0%,100% { transform: translateY(6px) rotate(-2deg); } 50% { transform: translateY(10px) rotate(2deg); } }
+@keyframes glitch { 0% { transform: translate(2px,-1px); } 100% { transform: translate(-2px,1px); } }
+@keyframes look { 0%,20% { transform: translateX(0); } 30%,45% { transform: translateX(-9px); } 55%,70% { transform: translateX(9px); } 80%,100% { transform: translateX(0); } }
+@keyframes lookup { 50% { transform: translate(6px,-6px); } }
+@keyframes lids { 0%,92%,100% { transform: scaleY(0); } 96% { transform: scaleY(1); } }
+@keyframes zzz { 0% { opacity: 0; transform: translate(0,0) scale(.6); } 40% { opacity: 1; } 100% { opacity: 0; transform: translate(30px,-60px) scale(1.2); } }
+@keyframes pop { 0% { transform: scale(.85); opacity: .3; } 70% { transform: scale(1.04); } 100% { transform: scale(1); opacity: 1; } }
+@keyframes fall { to { transform: translateY(110vh) rotate(540deg); } }
+</style>
+</head>
+<body class="sleep">
+<header>
+  <span id="live" class="pill live off">OFFLINE</span>
+  <span class="pill" id="mode">PAPER</span>
+  <span id="clock"></span>
+</header>
+
+<section id="pnl">
+  <div class="label">Today</div>
+  <div class="big" id="pnlBig">$0.00</div>
+  <div class="sub" id="pnlSub">Connecting…</div>
+</section>
+
+<section id="stage">
+  <div id="bubble">Starting up…</div>
+  <div id="zzz">z Z</div>
+  <svg id="bot" viewBox="0 0 230 250" aria-label="Trading bot avatar">
+    <defs>
+      <linearGradient id="metal" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#3a3a5c"/><stop offset="1" stop-color="#1c1c30"/>
+      </linearGradient>
+    </defs>
+    <line x1="115" y1="30" x2="115" y2="10" stroke="#55557a" stroke-width="4"/>
+    <circle class="antenna-ball" cx="115" cy="9" r="7"/>
+    <rect x="40" y="28" width="150" height="112" rx="34" fill="url(#metal)" stroke="#55557a" stroke-width="3"/>
+    <rect x="56" y="48" width="118" height="70" rx="22" fill="#05050c"/>
+    <rect class="glow" x="56" y="48" width="118" height="70" rx="22"/>
+    <g class="eyes">
+      <ellipse class="eye" cx="92" cy="78" rx="11" ry="13"/>
+      <ellipse class="eye" cx="138" cy="78" rx="11" ry="13"/>
+    </g>
+    <g fill="#05050c">
+      <rect class="lid" x="78" y="62" width="28" height="32"/>
+      <rect class="lid" x="124" y="62" width="28" height="32"/>
+    </g>
+    <path class="mouth" id="mouth" d="M100 102 Q115 108 130 102" fill="none" stroke-width="4" stroke-linecap="round"/>
+    <rect x="98" y="140" width="34" height="12" fill="#2a2a44"/>
+    <g class="arm-l"><rect x="22" y="160" width="22" height="58" rx="11" fill="url(#metal)" stroke="#55557a" stroke-width="3"/></g>
+    <g class="arm-r"><rect x="186" y="160" width="22" height="58" rx="11" fill="url(#metal)" stroke="#55557a" stroke-width="3"/></g>
+    <rect x="48" y="150" width="134" height="92" rx="24" fill="url(#metal)" stroke="#55557a" stroke-width="3"/>
+    <rect x="70" y="166" width="90" height="40" rx="10" fill="#05050c"/>
+    <text id="chest" x="115" y="192" text-anchor="middle" font-size="16" font-weight="800" class="eye" font-family="Segoe UI, sans-serif">$</text>
+    <circle cx="82" cy="224" r="5" style="fill:var(--green)"/><circle cx="98" cy="224" r="5" style="fill:var(--amber)"/><circle cx="114" cy="224" r="5" style="fill:var(--red)"/>
+  </svg>
+</section>
+
+<div id="chips"></div>
+
+<section id="bottom">
+  <div class="card"><h3>Holding</h3><div id="positions"><div class="row muted">Nothing right now</div></div></div>
+  <div class="card"><h3>What I've done today</h3><div id="feed"><div class="row muted">Nothing yet</div></div></div>
+</section>
+
+<footer>
+  <span id="next"></span>
+  <span class="spacer"></span>
+  <button id="voiceBtn" title="Read each message out loud">🔊 Voice</button>
+  <button id="demoBtn" title="Play some made-up events to see the animations">▶ Demo</button>
+</footer>
+
+<script>
+const $ = id => document.getElementById(id);
+const money = (n, sign) => (sign && n > 0 ? "+" : n < 0 ? "-" : "") + "$" + Math.abs(n).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const hhmm = t => { const [h, m] = t.slice(11, 16).split(":"); return ((+h % 12) || 12) + ":" + m; };
+const short = (s, n = 170) => s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s;
+const pick = a => a[Math.floor(Math.random() * a.length)];
+// Same event always gets the same wording, so the feed doesn't reshuffle.
+const pickFor = (e, a) => e.id ? a[[...e.id].reduce((h, c) => h + c.charCodeAt(0), 0) % a.length] : pick(a);
+
+let S = null, seen = new Set(), queue = [], showingUntil = 0, voice = false, firstLoad = true, focusSym = null;
+try { voice = localStorage.getItem("avatarVoice") === "1"; } catch (e) {}
+
+const MOUTHS = {
+  smile: "M98 100 Q115 114 132 100", flat: "M100 104 L130 104", frown: "M100 108 Q115 98 130 108",
+  open: "M102 100 Q115 118 128 100 Z", o: "M110 104 Q115 96 120 104 Q115 112 110 104"
+};
+
+// Turn one event into what the avatar says and how it looks.
+function react(e) {
+  const s = e.symbol;
+  switch (e.kind) {
+    case "start": return {mood: "happy", mouth: "smile", text: "Booting up! I'm connected to the paper account."};
+    case "watching": return {mood: "happy", mouth: "smile", text: `Eyes on ${e.symbols}. Let's go!`};
+    case "newday": return {mood: "happy", mouth: "smile", text: `New day! Starting with ${money(e.equity)}.`};
+    case "ai": return e.approved
+      ? {mood: "happy", mouth: "open", sym: s, text: `Claude approved ${s}! (${Math.round(e.confidence * 100)}% sure)`, small: short(e.reason)}
+      : {mood: "nope", mouth: "frown", sym: s, text: pickFor(e, [`Claude said nope on ${s}.`, `${s}? Claude rejected it.`, `Skipping ${s}. Claude isn't buying it.`]) + ` (${Math.round(e.confidence * 100)}% sure)`, small: short(e.reason)};
+    case "buy": return {mood: "buy", mouth: "open", sym: s, fx: "cash", text: `BUYING ${e.qty} ${s} at ~$${e.price.toFixed(2)}!`, small: `Stop-loss $${e.stop.toFixed(2)} · Target $${e.target.toFixed(2)}`};
+    case "filled": return {mood: "happy", mouth: "smile", sym: s, text: `Order filled: ${e.qty} ${s} at $${e.price.toFixed(2)}.`};
+    case "exit": return {mood: "think", mouth: "flat", sym: s, text: `${s}'s trend broke. Getting out.`};
+    case "flatten": return {mood: "think", mouth: "flat", text: `Closing everything: ${e.reason}.`};
+    case "sold": {
+      const how = e.how === "target" ? "Hit my target" : e.how === "stop" ? "Stop-loss hit" : "Closed it";
+      if (e.pnl == null) return {mood: "happy", mouth: "smile", sym: s, text: `Sold ${s} at $${e.price.toFixed(2)}. ${how}.`};
+      return e.pnl >= 0
+        ? {mood: "win", mouth: "open", sym: s, fx: "confetti", text: `${how} on ${s}! ${money(e.pnl, true)} 🎉`}
+        : {mood: "sad", mouth: "frown", sym: s, text: `${how} on ${s}. ${money(e.pnl, true)}. On to the next one.`};
+    }
+    case "stopped": return {mood: "sleep", mouth: "flat", text: "Shutting down. My stop-losses stay on at Alpaca."};
+    case "review_fail": return {mood: "think", mouth: "o", text: "Couldn't reach Claude, so I'm skipping that trade."};
+    case "error": return {mood: "error", mouth: "o", text: "Uh oh, I hit an error. Trying again next bar."};
+  }
+  return null;
+}
+
+// What to say when nothing new is happening.
+function idle() {
+  const a = S && S.account, ok = a && !a.error;
+  if (S && !S.bot_running) {
+    const open = ok && a.market_open;
+    return {mood: "sleep", mouth: "flat", text: open ? "The bot isn't running right now. 😴" : "Market's closed. Recharging… 😴",
+      small: open ? "It starts on its own at 9:20am ET on weekdays." : "Back at 9:30am ET on weekdays."};
+  }
+  if (ok && !a.market_open) return {mood: "sleep", mouth: "flat", text: "Bot's on, waiting for the opening bell. 🔔"};
+  const lines = [`Watching ${S.symbols.join(", ")}…`, `Next check in ${countdown()}.`, "Looking for a breakout… 👀", "Patience is a strategy too."];
+  if (ok) for (const p of a.positions) lines.push(`Holding ${p.symbol}: ${money(p.upl, true)} (${p.uplpc >= 0 ? "+" : ""}${p.uplpc.toFixed(2)}%)`);
+  const now = new Date();
+  if (now.getHours() === 11 && now.getMinutes() >= 30 || now.getHours() >= 12) lines.push("No new buys after 11:30. Just managing what I hold.");
+  return {mood: "watch", mouth: "smile", text: pick(lines)};
+}
+
+function countdown() {
+  const period = ((S && S.bar_minutes) || 5) * 60, now = Date.now() / 1000;
+  const left = Math.max(0, Math.round(period - (now % period) + 5));
+  return Math.floor(left / 60) + ":" + String(left % 60).padStart(2, "0");
+}
+
+function show(r) {
+  document.body.className = r.mood;
+  $("mouth").setAttribute("d", MOUTHS[r.mouth] || MOUTHS.smile);
+  const b = $("bubble");
+  b.textContent = r.text;
+  if (r.small) { const sm = document.createElement("span"); sm.className = "small"; sm.textContent = r.small; b.appendChild(sm); }
+  b.classList.remove("pop"); void b.offsetWidth; b.classList.add("pop");
+  focusSym = r.sym || null; renderChips();
+  if (r.fx) burst(r.fx);
+  if (voice && "speechSynthesis" in window) { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(r.text.replace(/[🎉😴👀🔔]/g, ""))); }
+}
+
+function burst(kind) {
+  const chars = kind === "cash" ? ["💵", "💰", "💵"] : ["🎉", "✨", "🟩", "💚"];
+  for (let i = 0; i < 28; i++) {
+    const d = document.createElement("div");
+    d.className = "fall"; d.textContent = pick(chars);
+    d.style.left = Math.random() * 100 + "vw";
+    d.style.animationDuration = 1.8 + Math.random() * 1.8 + "s";
+    d.style.animationDelay = Math.random() * .8 + "s";
+    document.body.appendChild(d); setTimeout(() => d.remove(), 4500);
+  }
+}
+
+function renderChips() {
+  if (!S) return;
+  const held = new Set((S.account && S.account.positions || []).map(p => p.symbol));
+  $("chips").innerHTML = S.symbols.map(s => `<span class="chip ${held.has(s) ? "held" : ""} ${s === focusSym ? "focus" : ""}">${s}</span>`).join("");
+}
+
+function feedLine(e) {
+  const r = react(e); if (!r) return null;
+  return `<div class="row"><span>${hhmm(e.t)}</span><span>${r.text.replace(/</g, "&lt;")}</span></div>`;
+}
+
+function render() {
+  const a = S.account, ok = a && !a.error;
+  const running = S.bot_running && ok && a.market_open;
+  $("live").textContent = running ? "LIVE" : S.bot_running ? "ON" : "OFFLINE";
+  $("live").classList.toggle("off", !running);
+  if (ok) {
+    $("mode").textContent = a.paper ? "PAPER" : "REAL $";
+    $("pnlBig").textContent = money(a.day_pnl, true);
+    $("pnlBig").className = "big " + (a.day_pnl > 0 ? "up" : a.day_pnl < 0 ? "down" : "");
+    $("pnlSub").textContent = `${a.day_pct >= 0 ? "+" : ""}${a.day_pct.toFixed(2)}% · Account ${money(a.equity)}`;
+    $("chest").textContent = (a.day_pnl >= 0 ? "+" : "-") + "$" + Math.abs(a.day_pnl).toFixed(0);
+    $("positions").innerHTML = a.positions.length ? a.positions.map(p =>
+      `<div class="row"><span>${p.symbol} <span class="muted">${p.qty} @ $${p.avg.toFixed(2)}</span></span><span class="${p.upl >= 0 ? "up" : "down"}">${money(p.upl, true)}</span></div>`
+    ).join("") : `<div class="row muted">Nothing right now</div>`;
+  } else {
+    $("pnlSub").textContent = "Can't reach Alpaca right now" + (a && a.error ? ": " + a.error.slice(0, 60) : "");
+  }
+  const lines = S.events.map(feedLine).filter(Boolean).reverse().slice(0, 25);
+  $("feed").innerHTML = lines.length ? lines.join("") : `<div class="row muted">Nothing yet today</div>`;
+  renderChips();
+}
+
+async function poll() {
+  try {
+    S = await (await fetch("/state", {cache: "no-store"})).json();
+  } catch (e) {
+    $("pnlSub").textContent = "Avatar server stopped. Reopen it from the Desktop shortcut.";
+    return;
+  }
+  render();
+  const fresh = S.events.filter(e => !seen.has(e.id));
+  fresh.forEach(e => seen.add(e.id));
+  if (firstLoad) {
+    firstLoad = false;
+    const last = fresh[fresh.length - 1];  // replay only the latest, if it's recent
+    if (last && Date.now() - new Date(last.t).getTime() < 20 * 60 * 1000) queue.push(last);
+  } else {
+    queue.push(...fresh);
+  }
+}
+
+function tick() {
+  $("clock").textContent = new Date().toLocaleTimeString([], {hour: "numeric", minute: "2-digit", second: "2-digit"});
+  $("next").textContent = S && S.bot_running ? `Next check in ${countdown()}` : "";
+  if (Date.now() < showingUntil) return;
+  const e = queue.shift();
+  if (e) { const r = e.demo ? e : react(e); if (r) { show(r); showingUntil = Date.now() + (r.small ? 11000 : 7000); return; } }
+  if (S) { show(idle()); showingUntil = Date.now() + 9000; }
+}
+
+$("voiceBtn").classList.toggle("on", voice);
+$("voiceBtn").onclick = () => {
+  voice = !voice; $("voiceBtn").classList.toggle("on", voice);
+  try { localStorage.setItem("avatarVoice", voice ? "1" : "0"); } catch (e) {}
+  if (voice) show({mood: "happy", mouth: "smile", text: "Voice on! I'll read my updates out loud."}), showingUntil = Date.now() + 4000;
+};
+$("demoBtn").onclick = () => {
+  const sym = (S && S.symbols) || ["SPY", "AAPL", "NVDA"];
+  const demo = [
+    {kind: "ai", symbol: sym[0], approved: false, confidence: .75, reason: "The breakout is tiny and goes against today's downtrend. (This is a demo.)"},
+    {kind: "ai", symbol: sym[1], approved: true, confidence: .72, reason: "Clean break above the opening range on strong volume. (This is a demo.)"},
+    {kind: "buy", symbol: sym[1], qty: 120, price: 231.4, stop: 229.9, target: 232.9, reason: "demo"},
+    {kind: "sold", symbol: sym[1], qty: 120, price: 232.9, how: "target", pnl: 180},
+    {kind: "sold", symbol: sym[2] || sym[0], qty: 50, price: 210.1, how: "stop", pnl: -75},
+  ].map(e => Object.assign(react(e), {demo: true}));
+  queue.unshift(...demo); showingUntil = 0;
+};
+
+poll(); setInterval(poll, 3000); setInterval(tick, 500);
+</script>
+</body>
+</html>

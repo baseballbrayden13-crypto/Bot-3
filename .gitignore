@@ -1,0 +1,25 @@
+# Secrets (API keys live only in .env, written by set_keys.py / set_anthropic_key.py)
+.env
+*.env
+!.env.example
+
+# Python
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Logs, trade history and reports (personal data)
+*.log
+logs/
+backtest_trades.csv
+backtest_trades_*.csv
+reports/
+state/
+*.sqlite
+*.db
+
+# Local Windows shortcut
+*.lnk
