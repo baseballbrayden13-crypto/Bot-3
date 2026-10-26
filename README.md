@@ -30,6 +30,14 @@ account**. An optional Claude reviewer can veto setups before they're placed.
 | `orb` | First close above the opening range high | Stop at the range low, target `ORB_TARGET_R`× the risk |
 | `vwap_reversion` | Price closes `VWAP_REV_ATR` ATRs below VWAP with RSI under `VWAP_REV_RSI` | Target VWAP, stop 1.5×ATR below |
 | `bollinger` | Close crosses back above the lower Bollinger band (20, 2) | Target the middle band, stop 1.5×ATR below |
+| `pdh_break` | First close above yesterday's high | Stop 1.5×ATR below, target 3×ATR above |
+| `gap_reversal` | Opens `GAP_MIN_PCT`% or more below yesterday's close, then closes back above today's open | Target yesterday's close (gap fill), stop 1.5×ATR below |
+| `vwap_pullback` | Fast EMA above slow EMA, bar dips to VWAP and closes green above it | Stop 1.5×ATR below, target 3×ATR above |
+| `rsi2` | RSI(2) under 10 while above the slow EMA | RSI(2) back over 70, or stop/target |
+
+ORB also has optional filters, all off by default: `ORB_STOP=mid` (tighter
+stop), `ORB_VWAP_FILTER`, `ORB_VOLUME_MULT`, `ORB_MAX_RANGE_PCT` and `ORB_GAP`.
+See `.env.example`.
 
 To add one, write an entry function in `bot/strategy.py` that returns a
 `Signal` (or `None`) and add it to `STRATEGIES` at the bottom of the file. The
@@ -39,6 +47,16 @@ Compare them on the same data (use your real account size for `--cash`):
 
 ```bash
 python -m bot.compare --source alpaca --days 180 --cash 5000
+```
+
+For a deeper look, `bot.research` tests each ORB filter on its own, keeps only
+the ones that help on the older two thirds of the history, then checks the
+result on the most recent third, which it never tuned on. It also runs every
+strategy on the same split. Bars are cached in `data_cache/`, and the report is
+saved to `reports/research_<date>.md`. Nothing in `.env` is changed.
+
+```bash
+python -m bot.research --source alpaca --days 1095 --cash 5000
 ```
 
 ## Setup (about 10 minutes)

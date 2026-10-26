@@ -10,6 +10,10 @@ the backtest, live loop and `python -m bot.compare` all pick it up.
   orb             First close above the opening range high.
   vwap_reversion  Price stretches well below VWAP with RSI oversold; target VWAP.
   bollinger       Close crosses back above the lower Bollinger band; target the middle band.
+  pdh_break       First close above the previous day's high.
+  gap_reversal    After a gap down, buy the first close back above the day's open; target the prior close.
+  vwap_pullback   In an uptrend above VWAP, buy a bar that dips to VWAP and closes back above it.
+  rsi2            Short-term dip: RSI(2) under 10 while above the slow EMA; exit when RSI(2) recovers.
 
 These are starting points to test, not proven edges.
 """
@@ -66,7 +70,21 @@ def add_indicators(df: pd.DataFrame, cfg: Settings) -> pd.DataFrame:
     mid = out["close"].rolling(cfg.bb_period).mean()
     out["bb_mid"] = mid
     out["bb_low"] = mid - cfg.bb_std * out["close"].rolling(cfg.bb_period).std()
+    out["rsi2"] = rsi(out["close"], 2)
+    out["vol_avg"] = out["volume"].rolling(20).mean().shift(1)  # average of the 20 bars before this one
+    out = _add_daily_levels(out)
     out = _add_opening_range(out, cfg.orb_minutes, cfg.orb_max_per_day)
+    return out
+
+
+def _add_daily_levels(out: pd.DataFrame) -> pd.DataFrame:
+    """Today's open, and yesterday's high and close (from completed sessions only)."""
+    day = pd.Series(out.index.tz_convert("America/New_York").date, index=out.index)
+    out["day_open"] = out["open"].groupby(day).transform("first")
+    daily = out.groupby(day).agg(high=("high", "max"), close=("close", "last"))
+    prev = daily.shift(1)
+    out["prev_high"] = day.map(prev["high"]).astype(float)
+    out["prev_close"] = day.map(prev["close"]).astype(float)
     return out
 
 
@@ -122,7 +140,8 @@ def ema_cross_signal(symbol: str, bars: pd.DataFrame, cfg: Settings) -> Signal |
 
 def orb_signal(symbol: str, bars: pd.DataFrame, cfg: Settings) -> Signal | None:
     """Opening-range breakout: buy the first close above the opening range high.
-    Stop at the opening range low, target at orb_target_r times the risk."""
+    Stop at the opening range low (or its midpoint), target at orb_target_r times the risk.
+    The optional ORB_* filters below are all off by default."""
     row = bars.iloc[-1]
     if not row["orb_break"]:
         return None
@@ -132,7 +151,17 @@ def orb_signal(symbol: str, bars: pd.DataFrame, cfg: Settings) -> Signal | None:
         if et.hour * 60 + et.minute >= h * 60 + m:
             return None
     price = float(row["close"])
-    stop = float(row["or_low"])
+    if cfg.orb_vwap_filter and not price > row["vwap"]:
+        return None
+    if cfg.orb_volume_mult and not row["volume"] >= cfg.orb_volume_mult * row["vol_avg"]:
+        return None
+    if cfg.orb_max_range_pct and (row["or_high"] - row["or_low"]) / price * 100 > cfg.orb_max_range_pct:
+        return None
+    if cfg.orb_gap == "up" and not row["day_open"] > row["prev_close"]:
+        return None
+    if cfg.orb_gap == "down" and not row["day_open"] < row["prev_close"]:
+        return None
+    stop = float(row["or_low"]) if cfg.orb_stop == "low" else float(row["or_high"] + row["or_low"]) / 2
     if not price > stop:
         return None
     return Signal(
@@ -191,6 +220,69 @@ def bollinger_signal(symbol: str, bars: pd.DataFrame, cfg: Settings) -> Signal |
     )
 
 
+def _atr_bracket(symbol: str, row, reason: str, cfg: Settings) -> Signal | None:
+    price, a = float(row["close"]), float(row["atr"])
+    if a <= 0 or np.isnan(a):
+        return None
+    return Signal(symbol, "buy", price, price - cfg.stop_atr * a, price + cfg.target_atr * a, reason)
+
+
+def pdh_break_signal(symbol: str, bars: pd.DataFrame, cfg: Settings) -> Signal | None:
+    """Buy the first close above yesterday's high. ATR stop and target."""
+    if len(bars) < 2:
+        return None
+    row, prev = bars.iloc[-1], bars.iloc[-2]
+    pdh = row["prev_high"]
+    if np.isnan(pdh) or not row["close"] > pdh:
+        return None
+    if prev["prev_high"] == pdh and prev["close"] > pdh:
+        return None  # already above it on the previous bar today
+    return _atr_bracket(symbol, row, f"broke yesterday's high {pdh:.2f}", cfg)
+
+
+def gap_reversal_signal(symbol: str, bars: pd.DataFrame, cfg: Settings) -> Signal | None:
+    """After opening at least gap_min_pct below yesterday's close, buy the first close back
+    above today's open. Target yesterday's close (the gap fill), stop stop_atr ATRs below."""
+    if len(bars) < 2:
+        return None
+    row, prev = bars.iloc[-1], bars.iloc[-2]
+    pc, op = row["prev_close"], row["day_open"]
+    if np.isnan(pc) or not op <= pc * (1 - cfg.gap_min_pct / 100):
+        return None
+    same_day = prev["day_open"] == op
+    if not (row["close"] > op and (not same_day or prev["close"] <= op)):
+        return None
+    sig = _atr_bracket(symbol, row, f"gapped down {(1 - op / pc) * 100:.1f}%, back above the open", cfg)
+    if sig is None or not pc > sig.price:
+        return None
+    sig.target = float(pc)
+    return sig
+
+
+def vwap_pullback_signal(symbol: str, bars: pd.DataFrame, cfg: Settings) -> Signal | None:
+    """Fast EMA above slow EMA, the bar dips to VWAP and closes back above it, green bar."""
+    if len(bars) < cfg.ema_slow + 2:
+        return None
+    row = bars.iloc[-1]
+    if not (row["ema_fast"] > row["ema_slow"] and row["low"] <= row["vwap"] < row["close"] and row["close"] > row["open"]):
+        return None
+    return _atr_bracket(symbol, row, "pulled back to VWAP in an uptrend", cfg)
+
+
+def rsi2_signal(symbol: str, bars: pd.DataFrame, cfg: Settings) -> Signal | None:
+    """RSI(2) under 10 while price is above the slow EMA. Exits when RSI(2) gets back over 70."""
+    if len(bars) < cfg.ema_slow + 2:
+        return None
+    row = bars.iloc[-1]
+    if not (row["rsi2"] < 10 and row["close"] > row["ema_slow"]):
+        return None
+    return _atr_bracket(symbol, row, f"RSI(2) {row['rsi2']:.0f} dip above EMA{cfg.ema_slow}", cfg)
+
+
+def rsi2_exit(bars: pd.DataFrame, cfg: Settings | None) -> bool:
+    return bool(bars.iloc[-1]["rsi2"] > 70)
+
+
 def market_ok(market_bars: pd.DataFrame | None) -> bool:
     """True when the market symbol's last close is above its session VWAP. No data = don't trade."""
     if market_bars is None or market_bars.empty:
@@ -226,6 +318,10 @@ STRATEGIES: dict[str, Strategy] = {
         Strategy("orb", orb_signal),
         Strategy("vwap_reversion", vwap_reversion_signal),
         Strategy("bollinger", bollinger_signal),
+        Strategy("pdh_break", pdh_break_signal),
+        Strategy("gap_reversal", gap_reversal_signal),
+        Strategy("vwap_pullback", vwap_pullback_signal),
+        Strategy("rsi2", rsi2_signal, rsi2_exit),
     ]
 }
 

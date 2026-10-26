@@ -32,12 +32,19 @@ class Settings:
     )
     bar_minutes: int = field(default_factory=lambda: _int("BAR_MINUTES", 5))
 
-    # Strategy: ema_cross (default), orb, vwap_reversion or bollinger. See bot/strategy.py.
+    # Strategy: a name from STRATEGIES in bot/strategy.py, e.g. ema_cross (default) or orb.
     strategy: str = field(default_factory=lambda: os.getenv("STRATEGY", "ema_cross").strip().lower())
     orb_minutes: int = field(default_factory=lambda: _int("ORB_MINUTES", 15))
     orb_target_r: float = field(default_factory=lambda: _float("ORB_TARGET_R", 2.0))  # target = 2x the risk
     orb_max_per_day: int = field(default_factory=lambda: _int("ORB_MAX_PER_DAY", 1))  # breakouts per stock per day
     orb_last_entry: str = field(default_factory=lambda: os.getenv("ORB_LAST_ENTRY", "").strip())  # e.g. 11:30 ET; empty = all day
+    # Optional ORB filters, all off by default (see bot/strategy.py orb_signal)
+    orb_stop: str = field(default_factory=lambda: os.getenv("ORB_STOP", "low").strip().lower())  # low or mid of the range
+    orb_vwap_filter: bool = field(default_factory=lambda: _bool("ORB_VWAP_FILTER", False))  # breakout must be above VWAP
+    orb_volume_mult: float = field(default_factory=lambda: _float("ORB_VOLUME_MULT", 0))  # breakout volume vs 20-bar avg; 0 = off
+    orb_max_range_pct: float = field(default_factory=lambda: _float("ORB_MAX_RANGE_PCT", 0))  # skip wider ranges, % of price; 0 = off
+    orb_gap: str = field(default_factory=lambda: os.getenv("ORB_GAP", "any").strip().lower())  # any, up or down
+    gap_min_pct: float = field(default_factory=lambda: _float("GAP_MIN_PCT", 1.0))  # gap_reversal: minimum gap down, %
     ema_fast: int = field(default_factory=lambda: _int("EMA_FAST", 9))
     ema_slow: int = field(default_factory=lambda: _int("EMA_SLOW", 21))
     rsi_period: int = field(default_factory=lambda: _int("RSI_PERIOD", 14))
