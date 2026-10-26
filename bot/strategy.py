@@ -1,15 +1,22 @@
 """Indicators and entry/exit signals.
 
-Default strategy: intraday trend-following, long only.
-  Enter long when the fast EMA crosses above the slow EMA, price is above
-  the session VWAP, and RSI is between 50 and 70 (momentum, not overbought).
-  Exit on an ATR stop, an ATR profit target, or a bearish EMA cross.
+Every strategy is long only and intraday, and is registered in STRATEGIES at
+the bottom of this file. Pick one with STRATEGY in .env. To add a strategy,
+write an entry function (and optionally an exit function) and register it;
+the backtest, live loop and `python -m bot.compare` all pick it up.
 
-This is a starting point to test, not a proven edge.
+  ema_cross       Fast EMA crosses above slow EMA, price above VWAP, RSI 50-70.
+                  Exit on an ATR stop, an ATR target, or a bearish EMA cross.
+  orb             First close above the opening range high.
+  vwap_reversion  Price stretches well below VWAP with RSI oversold; target VWAP.
+  bollinger       Close crosses back above the lower Bollinger band; target the middle band.
+
+These are starting points to test, not proven edges.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable
 
 import numpy as np
 import pandas as pd
@@ -56,6 +63,9 @@ def add_indicators(df: pd.DataFrame, cfg: Settings) -> pd.DataFrame:
     above = out["ema_fast"] > out["ema_slow"]
     out["cross_up"] = above & ~above.shift(1, fill_value=False)
     out["cross_down"] = ~above & above.shift(1, fill_value=False)
+    mid = out["close"].rolling(cfg.bb_period).mean()
+    out["bb_mid"] = mid
+    out["bb_low"] = mid - cfg.bb_std * out["close"].rolling(cfg.bb_period).std()
     out = _add_opening_range(out, cfg.orb_minutes, cfg.orb_max_per_day)
     return out
 
@@ -87,8 +97,10 @@ class Signal:
 
 def entry_signal(symbol: str, bars: pd.DataFrame, cfg: Settings) -> Signal | None:
     """Look at the last completed bar of indicator-enriched data."""
-    if cfg.strategy == "orb":
-        return orb_signal(symbol, bars, cfg)
+    return get_strategy(cfg.strategy).entry(symbol, bars, cfg)
+
+
+def ema_cross_signal(symbol: str, bars: pd.DataFrame, cfg: Settings) -> Signal | None:
     if len(bars) < cfg.ema_slow + 2:
         return None
     row = bars.iloc[-1]
@@ -133,6 +145,52 @@ def orb_signal(symbol: str, bars: pd.DataFrame, cfg: Settings) -> Signal | None:
     )
 
 
+def vwap_reversion_signal(symbol: str, bars: pd.DataFrame, cfg: Settings) -> Signal | None:
+    """Buy the first bar that closes more than vwap_rev_atr ATRs below VWAP with RSI
+    under vwap_rev_rsi. Target is VWAP, stop is stop_atr ATRs below the entry."""
+    if len(bars) < cfg.atr_period + 2:
+        return None
+
+    def stretched(row) -> bool:
+        return bool(row["close"] < row["vwap"] - cfg.vwap_rev_atr * row["atr"] and row["rsi"] < cfg.vwap_rev_rsi)
+
+    row, prev = bars.iloc[-1], bars.iloc[-2]
+    if not stretched(row) or stretched(prev):
+        return None
+    price, a = float(row["close"]), float(row["atr"])
+    if a <= 0 or np.isnan(a):
+        return None
+    return Signal(
+        symbol=symbol,
+        side="buy",
+        price=price,
+        stop=price - cfg.stop_atr * a,
+        target=float(row["vwap"]),
+        reason=f"{(row['vwap'] - price) / a:.1f} ATR below VWAP, RSI {row['rsi']:.0f}",
+    )
+
+
+def bollinger_signal(symbol: str, bars: pd.DataFrame, cfg: Settings) -> Signal | None:
+    """Buy when the close crosses back above the lower Bollinger band.
+    Target is the middle band, stop is stop_atr ATRs below the entry."""
+    if len(bars) < cfg.bb_period + 2:
+        return None
+    row, prev = bars.iloc[-1], bars.iloc[-2]
+    if not (prev["close"] < prev["bb_low"] and row["close"] > row["bb_low"]):
+        return None
+    price, a, mid = float(row["close"]), float(row["atr"]), float(row["bb_mid"])
+    if a <= 0 or np.isnan(a) or not mid > price:
+        return None
+    return Signal(
+        symbol=symbol,
+        side="buy",
+        price=price,
+        stop=price - cfg.stop_atr * a,
+        target=mid,
+        reason=f"closed back above lower band {row['bb_low']:.2f}",
+    )
+
+
 def market_ok(market_bars: pd.DataFrame | None) -> bool:
     """True when the market symbol's last close is above its session VWAP. No data = don't trade."""
     if market_bars is None or market_bars.empty:
@@ -142,6 +200,38 @@ def market_ok(market_bars: pd.DataFrame | None) -> bool:
 
 
 def exit_on_trend_break(bars: pd.DataFrame, cfg: Settings | None = None) -> bool:
-    if cfg is not None and cfg.strategy == "orb":
-        return False  # ORB holds until stop, target, or end of day
+    return get_strategy(cfg.strategy if cfg is not None else "ema_cross").exit(bars, cfg)
+
+
+def ema_cross_exit(bars: pd.DataFrame, cfg: Settings | None) -> bool:
     return bool(bars.iloc[-1]["cross_down"])
+
+
+def hold_to_bracket(bars: pd.DataFrame, cfg: Settings | None) -> bool:
+    """Hold until the stop, the target, or the end of the day."""
+    return False
+
+
+@dataclass(frozen=True)
+class Strategy:
+    name: str
+    entry: Callable[[str, pd.DataFrame, Settings], Signal | None]
+    exit: Callable[[pd.DataFrame, Settings | None], bool] = hold_to_bracket
+
+
+STRATEGIES: dict[str, Strategy] = {
+    s.name: s
+    for s in [
+        Strategy("ema_cross", ema_cross_signal, ema_cross_exit),
+        Strategy("orb", orb_signal),
+        Strategy("vwap_reversion", vwap_reversion_signal),
+        Strategy("bollinger", bollinger_signal),
+    ]
+}
+
+
+def get_strategy(name: str) -> Strategy:
+    try:
+        return STRATEGIES[name]
+    except KeyError:
+        raise ValueError(f"unknown STRATEGY {name!r}; choose one of {', '.join(STRATEGIES)}") from None

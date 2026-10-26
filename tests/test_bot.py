@@ -136,3 +136,61 @@ def test_live_requires_both_flags(monkeypatch):
     assert not Settings().is_live
     monkeypatch.setenv("LIVE_TRADING_CONFIRM", "I_UNDERSTAND_REAL_MONEY")
     assert Settings().is_live
+
+
+def test_every_strategy_backtests_and_ends_flat():
+    from bot.strategy import STRATEGIES
+
+    frames = {"AAA": synthetic_bars(days=20, seed=1), "BBB": synthetic_bars(days=20, seed=2)}
+    for name in STRATEGIES:
+        res = run_backtest(frames, Settings(strategy=name), 25_000)
+        log = res["trade_log"]
+        assert len(log), f"{name} never traded on 20 days of random data"
+        same_day = log["entry_time"].dt.tz_convert(ET).dt.date == log["exit_time"].dt.tz_convert(ET).dt.date
+        assert same_day.all(), name
+
+
+def test_mean_reversion_signals_target_above_entry_and_stop_below():
+    from bot.strategy import bollinger_signal, vwap_reversion_signal
+
+    cfg = Settings()
+    df = add_indicators(synthetic_bars(days=20, seed=5), cfg)
+    for fn in (vwap_reversion_signal, bollinger_signal):
+        sigs = [fn("AAA", df.iloc[: i + 1], cfg) for i in range(30, len(df))]
+        sigs = [s for s in sigs if s is not None]
+        assert sigs, fn.__name__
+        assert all(s.stop < s.price < s.target for s in sigs), fn.__name__
+
+
+def test_unknown_strategy_is_a_clear_error():
+    import pytest
+
+    from bot.strategy import entry_signal
+
+    with pytest.raises(ValueError, match="choose one of"):
+        entry_signal("AAA", add_indicators(synthetic_bars(), Settings()), Settings(strategy="nope"))
+
+
+def test_compare_runs_each_strategy():
+    from bot.compare import compare
+    from bot.strategy import STRATEGIES
+
+    table = compare({"AAA": synthetic_bars(days=20, seed=1)}, Settings(), list(STRATEGIES))
+    assert set(table.index) == set(STRATEGIES)
+
+
+def test_backtest_charges_sell_fees():
+    frames = {"AAA": synthetic_bars(days=20, seed=1)}
+    free = run_backtest(frames, Settings(sec_fee_rate=0, taf_per_share=0), 25_000)
+    paid = run_backtest(frames, Settings(), 25_000)
+    assert paid["fees"] > 0 and free["fees"] == 0
+    assert paid["final_equity"] < free["final_equity"]
+    log = paid["trade_log"]
+    assert abs(paid["final_equity"] - (25_000 + log["pnl"].sum())) < 1e-6
+
+
+def test_taf_is_capped():
+    from bot.backtest import sell_fees
+
+    cfg = Settings(sec_fee_rate=0)
+    assert sell_fees(1_000_000, 10, cfg) == cfg.taf_max

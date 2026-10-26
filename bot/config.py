@@ -32,7 +32,7 @@ class Settings:
     )
     bar_minutes: int = field(default_factory=lambda: _int("BAR_MINUTES", 5))
 
-    # Strategy: "ema_cross" (default) or "orb" (opening-range breakout)
+    # Strategy: ema_cross (default), orb, vwap_reversion or bollinger. See bot/strategy.py.
     strategy: str = field(default_factory=lambda: os.getenv("STRATEGY", "ema_cross").strip().lower())
     orb_minutes: int = field(default_factory=lambda: _int("ORB_MINUTES", 15))
     orb_target_r: float = field(default_factory=lambda: _float("ORB_TARGET_R", 2.0))  # target = 2x the risk
@@ -44,6 +44,10 @@ class Settings:
     atr_period: int = field(default_factory=lambda: _int("ATR_PERIOD", 14))
     stop_atr: float = field(default_factory=lambda: _float("STOP_ATR", 1.5))
     target_atr: float = field(default_factory=lambda: _float("TARGET_ATR", 3.0))
+    vwap_rev_atr: float = field(default_factory=lambda: _float("VWAP_REV_ATR", 1.5))  # how far below VWAP, in ATRs
+    vwap_rev_rsi: float = field(default_factory=lambda: _float("VWAP_REV_RSI", 30))  # RSI must be under this
+    bb_period: int = field(default_factory=lambda: _int("BB_PERIOD", 20))
+    bb_std: float = field(default_factory=lambda: _float("BB_STD", 2.0))
     # Only buy when this symbol (e.g. SPY) is above its session VWAP. Empty = off.
     market_filter: str = field(default_factory=lambda: os.getenv("MARKET_FILTER", "").strip().upper())
 
@@ -59,6 +63,11 @@ class Settings:
     # Backtest costs
     slippage_bps: float = field(default_factory=lambda: _float("SLIPPAGE_BPS", 2.0))
     commission_per_share: float = field(default_factory=lambda: _float("COMMISSION_PER_SHARE", 0.0))
+    # Regulatory fees Alpaca passes through on every sell. Defaults are deliberately on the high side;
+    # check https://alpaca.markets/support/regulatory-fees for the current rates.
+    sec_fee_rate: float = field(default_factory=lambda: _float("SEC_FEE_RATE", 0.0000278))  # per $ of sale value
+    taf_per_share: float = field(default_factory=lambda: _float("TAF_PER_SHARE", 0.000195))  # FINRA TAF per share sold
+    taf_max: float = field(default_factory=lambda: _float("TAF_MAX", 9.79))  # TAF cap per trade
 
     # Optional Claude trade reviewer
     ai_review: bool = field(default_factory=lambda: _bool("AI_REVIEW", False))
